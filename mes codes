@@ -1,0 +1,1139 @@
+smartstudy-finder/
+│
+├── app.py                  # Backend Flask (routes + logique)
+├── config.py               # Clés API, configs
+├── requirements.txt        # Dépendances Python
+│
+├── /services               # Logique métier (propre et séparée)
+│   ├── youtube_api.py      # Appels API YouTube
+│   ├── scorer.py           # Algorithme de scoring
+│   ├── filter.py           # Logique de filtrage des contenus avant l'affichage des liens
+│   └── analyzer.py         # Statistiques globales
+│
+├── /data                   # Données locales
+│   ├── history.json        # Historique recherches
+│   └── favorites.json      # Vidéos sauvegardées
+│
+├── /templates              # Pages HTML (Flask)
+│   ├── base.html           # Layout principal (navbar)
+│   ├── index.html          # Page principale
+│   ├── video.html          # Détails vidéo
+│   ├── history.html        # Historique
+│   ├── favorites.html      # Favoris
+│   ├── analytics.html      # Analyse globale
+│   └── about.html          # Méthodologie
+│
+├── /static
+│   ├── /css
+│   │   └── style.css
+│   │
+│   ├── /js
+│   │   ├── main.js         # interactions globales
+│   │   ├── search.js       # logique recherche
+│   │   └── charts.js       # graphiques (Chart.js)
+│   │
+│   └── /images
+│
+└── README.md
+
+
+#config.py
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+class Config:
+    YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
+  
+
+#app.py
+from flask import Flask, render_template, request, jsonify, redirect
+import json
+from datetime import datetime
+import random
+
+from services.youtube_api import search_youtube, get_video_details
+from services.score import compute_score
+from services.analyzer import analyze_history
+
+app = Flask(__name__)
+
+SUGGESTIONS = [
+    "Python débutant",
+    "Intelligence artificielle",
+    "Développement web",
+    "Structures de données",
+    "Algorithmes faciles",
+    "Cybersécurité basics",
+    "Machine Learning introduction",
+    "Linux commandes",
+    "SQL pour débutants",
+    "JavaScript projets"
+]
+
+
+# ------------------ UTIL ------------------
+def get_history():
+    try:
+        with open("data/history.json", "r") as f:
+            return json.load(f)
+    except:
+        return []
+
+
+# ------------------ ACCUEIL ------------------
+@app.route("/")
+def index():
+    return render_template(
+        "index.html",
+        suggestions=random.sample(SUGGESTIONS, 5),
+        history=get_history(),
+        results=None
+    )
+
+
+# ------------------ SEARCH (LOGIQUE CLEAN) ------------------
+@app.route("/search")
+def search():
+    query = request.args.get("q", "").strip()
+
+    if not query:
+        return redirect("/")
+
+    # 1. recherche YouTube brute
+    results = search_youtube(query) or []
+
+    # 2. SCORE UNIQUE (centralisé dans score.py)
+    for v in results:
+        v["score"] = compute_score(v)
+        v["relevant"] = v["score"] > 50
+
+    # 3. historique
+    try:
+        with open("data/history.json", "r+") as f:
+            data = json.load(f)
+
+            data.append({
+                "query": query,
+                "date": datetime.now().strftime("%Y-%m-%d %H:%M")
+            })
+
+            f.seek(0)
+            f.truncate()
+            json.dump(data, f, indent=4)
+    except:
+        pass
+
+    return render_template(
+        "index.html",
+        results=results,
+        query=query,
+        suggestions=random.sample(SUGGESTIONS, 5),
+        history=get_history()
+    )
+
+
+# ------------------ HISTORY ------------------
+@app.route("/history")
+def history():
+    return render_template(
+        "history.html",
+        history=get_history(),
+        active="history"
+    )
+
+
+# ------------------ FAVORITES ------------------
+@app.route("/favorites")
+def favorites():
+    try:
+        with open("data/favorites.json") as f:
+            favorites = json.load(f)
+    except:
+        favorites = []
+
+    return render_template(
+        "favorites.html",
+        favorites=favorites,
+        active="favorites"
+    )
+
+
+# ------------------ FAVORITES TOGGLE ------------------
+@app.route("/toggle_favorite", methods=["POST"])
+def toggle_favorite():
+    video_id = request.json.get("id")
+    title = request.json.get("title")
+
+    try:
+        with open("data/favorites.json", "r+") as f:
+            data = json.load(f)
+
+            exists = any(v["id"] == video_id for v in data)
+
+            if exists:
+                data = [v for v in data if v["id"] != video_id]
+                action = "removed"
+            else:
+                data.append({"id": video_id, "title": title})
+                action = "added"
+
+            f.seek(0)
+            f.truncate()
+            json.dump(data, f, indent=4)
+
+        return jsonify({"status": action})
+
+    except:
+        return jsonify({"status": "error"})
+
+
+# ------------------ ANALYTICS ------------------
+@app.route("/analytics")
+def analytics():
+    history = get_history()
+    stats = analyze_history(history)
+
+    return render_template(
+        "analytics.html",
+        stats=stats,
+        active="analytics"
+    )
+
+
+# ------------------ ABOUT ------------------
+@app.route("/about")
+def about():
+    return render_template("about.html", active="about")
+
+
+# ------------------ VIDEO ------------------
+@app.route("/video/<video_id>")
+def video_detail(video_id):
+    video, comments = get_video_details(video_id)
+
+    if not video:
+        return "Erreur récupération vidéo 😅"
+
+    score = compute_score(video)
+
+    return render_template(
+        "video.html",
+        video=video,
+        comments=comments,
+        score=score
+    )
+
+
+# ------------------ RUN ------------------
+if __name__ == "__main__":
+    app.run(debug=True)
+
+#youtube_api.py
+import requests
+
+# ⚠️ Mets ta clé API ici (ou mieux: variable d'env plus tard)
+API_KEY = "YOUR_YOUTUBE_API_KEY"
+
+BASE_URL = "https://www.googleapis.com/youtube/v3/search"
+
+
+# ------------------ RECHERCHE VIDÉOS ------------------
+def search_youtube(query, max_results=20):
+    """
+    Récupère des vidéos YouTube brutes (sans filtrage).
+    """
+
+    params = {
+        "part": "snippet",
+        "q": query,
+        "type": "video",
+        "maxResults": max_results,
+        "key": API_KEY
+    }
+
+    response = requests.get(BASE_URL, params=params)
+
+    if response.status_code != 200:
+        return []
+
+    data = response.json()
+
+    videos = data.get("items", [])
+
+    return videos
+
+
+# ------------------ DÉTAIL VIDÉO ------------------
+def get_video_details(video_id):
+    """
+    Récupère infos + commentaires (si besoin futur)
+    """
+
+    url = "https://www.googleapis.com/youtube/v3/videos"
+
+    params = {
+        "part": "snippet,statistics",
+        "id": video_id,
+        "key": API_KEY
+    }
+
+    response = requests.get(url, params=params)
+
+    if response.status_code != 200:
+        return None, []
+
+    data = response.json()
+
+    items = data.get("items", [])
+    if not items:
+        return None, []
+
+    video = items[0]
+
+    # commentaires (optionnel, peut être amélioré plus tard)
+    comments = []
+
+    return video, comments
+    
+    
+    #score.py
+    def compute_score(video):
+    stats = video.get("statistics", {})
+
+    try:
+        likes = int(stats.get("likeCount", 0))
+        views = int(stats.get("viewCount", 1))
+    except:
+        return 0
+
+    if views == 0:
+        return 0
+
+    score = (likes / views) * 1000
+
+    return min(int(score), 100)
+
+
+    #analyzer.py 
+    def analyze_history(history):
+    total = len(history)
+
+    last_search = history[-1]["date"] if total > 0 else None
+
+    queries = [h["query"] for h in history]
+
+    top_query = max(set(queries), key=queries.count) if queries else None
+
+    return {
+        "total_searches": total,
+        "last_search": last_search,
+        "top_query": top_query
+    }
+    
+    
+    #filter.py
+    import re
+
+EDUCATIONAL_KEYWORDS = [
+    "apprendre", "learn", "tutoriel", "tutorial",
+    "cours", "lesson", "débutant", "beginner",
+    "introduction", "guide", "formation",
+    "exercice", "practice", "basics", "base",
+    "explication", "détaillé"
+]
+
+
+def normalize(text: str) -> str:
+    text = text.lower()  # 🔥 clé du problème résolu ici
+    return re.sub(r"[^a-z0-9àâçéèêëîïôûùüÿñæœ\s]", " ", text)
+
+
+def is_educational(text: str) -> bool:
+    text = normalize(text)  # sécurité supplémentaire
+
+    return any(
+        keyword.lower() in text
+        for keyword in EDUCATIONAL_KEYWORDS
+    )
+
+
+def filter_videos(videos):
+    filtered = []
+
+    for v in videos:
+        snippet = v.get("snippet", {})
+
+        title = snippet.get("title", "")
+        desc = snippet.get("description", "")
+
+        text = normalize(title + " " + desc)
+
+        if is_educational(text):
+            v["relevant"] = True
+            filtered.append(v)
+
+    return filtered
+
+    #analytics.html
+    {% extends "base.html" %}
+
+{% block content %}
+
+<h2>📊 Analyse</h2>
+
+<p>Total recherches : {{ stats.total_searches }}</p>
+
+<p>Dernière recherche :
+    {% if stats.last_search %}
+        {{ stats.last_search }}
+    {% else %}
+        aucune
+    {% endif %}
+</p>
+
+{% endblock %}
+
+#video.html
+{% extends "base.html" %}
+
+{% block content %}
+
+<h2>Détails vidéo</h2>
+
+<div class="video-card">
+    <h2>{{ video.snippet.title }}</h2>
+
+    <p class="score">Score : {{ score }}/100</p>
+
+    <a href="https://www.youtube.com/watch?v={{ video.id }}" target="_blank">
+        ▶ Regarder sur YouTube
+    </a>
+</div>
+<h3>Commentaires</h3>
+
+<ul>
+    {% for comment in comments %}
+        <li>{{ comment }}</li>
+    {% endfor %}
+</ul>
+<br>
+<button id="fav-btn"
+onclick="toggleFavorite('{{ video.id }}', '{{ video.snippet.title }}', this)">
+☆ Favori
+</button>
+
+<p id="fav-msg"></p>
+{% endblock %}
+
+#index.html
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="home">
+
+    <!-- 🔍 SEARCH -->
+    <div class="search-box">
+        <form action="/search" method="GET" onsubmit="console.log('FORM SUBMIT')">
+            <input 
+                type="text" 
+                name="q" 
+                placeholder="Apprendre Python, SQL, Linux..."
+                value="{{ query if query else '' }}"
+                id="search-input"
+            >
+
+            <button type="submit">🔍</button>
+            <button type="button" id="mic-btn" onclick="startVoice()">🎤</button>
+        </form>
+
+        <!-- historique -->
+        <div id="history-box">
+            {% if history %}
+                {% for item in history[-5:] %}
+                    <div class="history-item" onclick="searchAgain('{{ item.query }}')">
+                        {{ item.query }}
+                    </div>
+                {% endfor %}
+            {% endif %}
+        </div>
+    </div>
+
+
+    <!-- 🧠 SUGGESTIONS -->
+    {% if not results %}
+    <div class="suggestions">
+        {% for s in suggestions %}
+            <div class="suggest-card" onclick="searchAgain('{{ s }}')">
+                <img src="https://source.unsplash.com/300x200/?{{ s }}">
+                <p>{{ s }}</p>
+            </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+<!-- 🔎 RESULTS -->
+{% if results is not none %}
+
+    {% if results|length > 0 %}
+
+        <div class="results">
+            <h2>Résultats pour "{{ query }}"</h2>
+
+            {% for video in results %}
+            <div class="video-card">
+
+                <img src="{{ video.snippet.thumbnails.medium.url }}">
+
+                <div>
+                    <h3>{{ video.snippet.title }}</h3>
+
+                    <a href="/video/{{ video.id.videoId }}">Voir détails</a>
+
+                    <div class="score">
+                        Score : {{ video.score }}
+                    </div>
+
+                    {% if video.relevant %}
+                        <span class="badge">🔥 Pertinent</span>
+                    {% endif %}
+                </div>
+
+            </div>
+            {% endfor %}
+        </div>
+
+    {% else %}
+
+        <p class="empty">
+            Aucun résultat pour cette recherche 😅
+        </p>
+
+    {% endif %}
+
+{% endif %}
+{% endblock %}
+
+#history.html
+{% extends "base.html" %}
+
+{% block content %}
+
+<h2>📜 Historique</h2>
+
+<ul>
+    {% for item in history %}
+        <li>
+            🔎 {{ item.query }} - 🕒 {{ item.date }}
+        </li>
+    {% endfor %}
+</ul>
+
+{% endblock %}
+
+#base.html
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SmartStudy Finder</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+<nav>
+    <a href="/" class="{% if active == 'home' %}active{% endif %}">Accueil</a>
+    <a href="/history" class="{% if active == 'history' %}active{% endif %}">Historique</a>
+    <a href="/favorites" class="{% if active == 'favorites' %}active{% endif %}">Favoris</a>
+    <a href="/analytics" class="{% if active == 'analytics' %}active{% endif %}">Analyse</a>
+    <a href="/about" class="{% if active == 'about' %}active{% endif %}">À propos</a>
+</nav>
+
+<div class="container">
+    {% block content %}{% endblock %}
+</div>
+
+<script src="/static/js/main.js"></script>
+<script src="/static/js/search.js"></script>
+<script src="/static/js/charts.js"></script>
+
+</body>
+</html>
+
+#about.html
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="about">
+
+    <h1>À propos de SmartStudy Finder</h1>
+
+    <p class="intro">
+        SmartStudy Finder est une application d’aide à la recherche de contenus éducatifs sur YouTube.
+        Elle a été conçue pour faciliter l’accès à des vidéos d’apprentissage pertinentes,
+        notamment pour les débutants et les étudiants.
+    </p>
+
+    <hr>
+
+    <h2>📊 Comment les données sont collectées</h2>
+
+    <p>
+        L’application ne stocke pas de vidéos elle-même. Elle interagit directement avec
+        l’API officielle de YouTube afin de récupérer les résultats de recherche en temps réel.
+    </p>
+
+    <ul>
+        <li>Requêtes utilisateur (mots-clés saisis dans la barre de recherche)</li>
+        <li>Données publiques des vidéos (titre, vues, likes, commentaires)</li>
+        <li>Historique des recherches locales de l’utilisateur</li>
+    </ul>
+
+    <p>
+        Aucun compte utilisateur n’est nécessaire et aucune donnée sensible n’est collectée.
+    </p>
+
+    <hr>
+
+    <h2>🧠 Comment les données sont analysées</h2>
+
+    <p>
+        Les vidéos récupérées sont ensuite analysées afin de déterminer leur pertinence éducative.
+    </p>
+
+    <ul>
+        <li>Un score est calculé à partir du ratio likes / vues</li>
+        <li>Les vidéos contenant des mots-clés éducatifs sont favorisées</li>
+        <li>Un filtre élimine les contenus hors sujet ou peu pertinents</li>
+    </ul>
+
+    <p>
+        Exemple de formule actuelle :
+        <strong>(likes / vues) × 1000</strong>
+    </p>
+
+    <hr>
+
+    <h2>🎯 Objectif du projet</h2>
+
+    <p>
+        L’objectif est de créer un moteur de recherche spécialisé dans l’apprentissage,
+        capable de réduire le bruit des contenus non éducatifs présents sur YouTube
+        et d’aider les utilisateurs à apprendre plus rapidement.
+    </p>
+
+    <p>
+        À terme, l’application pourra intégrer des techniques plus avancées
+        comme la classification automatique des vidéos ou l’analyse sémantique des titres.
+    </p>
+
+    <hr>
+
+    <h2>⚙️ Technologies utilisées</h2>
+
+    <ul>
+        <li>Flask (backend Python)</li>
+        <li>YouTube Data API</li>
+        <li>JavaScript (interface interactive)</li>
+        <li>HTML / CSS</li>
+    </ul>
+
+    <hr>
+
+    <p class="note">
+        SmartStudy Finder est un projet éducatif en évolution continue.
+    </p>
+
+</div>
+
+{% endblock %}
+
+#history.json
+[]
+
+#favorites.json
+[]
+
+#main.js
+
+// =====================
+// INIT
+// =====================
+console.log("SmartStudy Finder loaded");
+
+// =====================
+// MESSAGE UTILITAIRE
+// =====================
+function showMessage(text) {
+    const msg = document.getElementById("fav-msg");
+
+    if (!msg) return;
+
+    msg.textContent = text;
+    msg.style.opacity = "1";
+
+    setTimeout(() => {
+        msg.style.opacity = "0";
+    }, 2000);
+}
+
+// =====================
+// RECHERCHE RAPIDE (historique + suggestions)
+// =====================
+function searchAgain(query) {
+    window.location.href = "/search?q=" + encodeURIComponent(query);
+}
+
+// =====================
+// VOIX (MICRO)
+// =====================
+function startVoice() {
+    const recognition = new webkitSpeechRecognition();
+    const mic = document.getElementById("mic-btn");
+
+    if (!mic) return;
+
+    mic.classList.add("listening");
+
+    recognition.onresult = function(event) {
+        document.getElementById("search-input").value =
+            event.results[0][0].transcript;
+    };
+
+    recognition.onend = function() {
+        mic.classList.remove("listening");
+    };
+
+    recognition.start();
+}
+
+// =====================
+// HISTORIQUE (affichage au focus)
+// =====================
+document.addEventListener("DOMContentLoaded", () => {
+    const input = document.getElementById("search-input");
+    const historyBox = document.getElementById("history-box");
+
+    if (input && historyBox) {
+        input.addEventListener("focus", () => {
+            historyBox.style.display = "block";
+        });
+
+        document.addEventListener("click", (e) => {
+            if (!e.target.closest(".search-box")) {
+                historyBox.style.display = "none";
+            }
+        });
+    }
+
+    // =====================
+    // FAVORIS (TOGGLE UNIQUE)
+    // =====================
+    const btn = document.getElementById("fav-btn");
+
+    if (btn) {
+        btn.addEventListener("click", async () => {
+            const id = btn.dataset.id;
+            const title = btn.dataset.title;
+
+            const res = await fetch("/toggle_favorite", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ id, title })
+            });
+
+            const data = await res.json();
+
+            if (data.status === "added") {
+                btn.classList.add("active");
+                btn.textContent = "✔ Retirer des favoris";
+                showMessage("Ajouté aux favoris ⭐");
+            } else if (data.status === "removed") {
+                btn.classList.remove("active");
+                btn.textContent = "⭐ Ajouter aux favoris";
+                showMessage("Retiré des favoris ❌");
+            } else {
+                showMessage("Erreur ⚠️");
+            }
+        });
+    }
+});
+
+// =====================
+// THEME (OPTIONNEL FUTUR)
+// =====================
+function toggleTheme() {
+    document.body.classList.toggle("dark-mode");
+}
+
+#search.js
+document.addEventListener("DOMContentLoaded", function () {
+
+    const form = document.querySelector("form");
+
+    if (form) {
+        form.addEventListener("submit", function () {
+            const input = form.querySelector("input[name='q']").value;
+
+            if (!input.trim()) {
+                alert("Entre un sujet valide !");
+            }
+        });
+    }
+
+});
+
+#charts.js
+function renderSearchChart(data) {
+    // Data attendu : [{label: "POO", value: 10}, ...]
+
+    const ctx = document.getElementById("chart");
+
+    if (!ctx) return;
+
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: data.map(d => d.label),
+            datasets: [{
+                label: 'Recherches',
+                data: data.map(d => d.value)
+            }]
+        }
+    });
+}
+
+#slyle.css
+form {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 30px;
+}
+
+input[type="text"] {
+    width: 65%;
+    padding: 15px;
+    border-radius: 20px;
+    border: 1px solid #cbd5f5;
+    background: white;
+    font-size: 16px;
+
+    transition: 0.3s;
+}
+
+input[type="text"]:focus {
+    border-color: #38bdf8;
+    box-shadow: 0 0 12px rgba(56,189,248,0.3);
+    outline: none;
+}
+nav {
+    display: flex;
+    gap: 25px;
+    padding: 18px 40px;
+    position: sticky;
+    top: 0;
+
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(10px);
+
+    border-bottom: 1px solid #e2e8f0;
+    z-index: 100;
+}
+
+nav a {
+    color: #475569;
+    text-decoration: none;
+    font-weight: 500;
+    position: relative;
+    transition: 0.3s;
+}
+
+nav a:hover {
+    color: #0ea5e9;
+}
+
+/* lien actif */
+nav a.active {
+    color: #0ea5e9;
+    font-weight: 600;
+}
+.container {
+    max-width: 1000px;
+    margin: 50px auto;
+    padding: 20px;
+}
+form {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 30px;
+}
+
+input[type="text"] {
+    width: 65%;
+    padding: 15px;
+    border-radius: 20px;
+    border: 1px solid #cbd5f5;
+    background: white;
+    font-size: 16px;
+
+    transition: 0.3s;
+}
+
+input[type="text"]:focus {
+    border-color: #38bdf8;
+    box-shadow: 0 0 12px rgba(56,189,248,0.3);
+    outline: none;
+}
+button {
+    padding: 12px 18px;
+    border-radius: 20px;
+    border: none;
+    cursor: pointer;
+    font-weight: 600;
+
+    background: linear-gradient(135deg, #38bdf8, #0ea5e9);
+    color: white;
+
+    transition: 0.3s;
+}
+
+button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(14,165,233,0.3);
+}
+
+/* bouton micro */
+button[type="button"] {
+    background: #facc15;
+    color: #1e293b;
+}
+.video-card {
+    display: flex;
+    gap: 15px;
+    padding: 15px;
+    margin-bottom: 18px;
+
+    border-radius: 18px;
+    background: white;
+
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+
+    transition: 0.3s;
+}
+
+.video-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+}
+
+/* image */
+.video-card img {
+    width: 140px;
+    border-radius: 12px;
+}
+
+/* texte */
+.video-card h3 {
+    font-size: 15px;
+    margin-bottom: 6px;
+}
+
+/* lien */
+.video-card a {
+    color: #0ea5e9;
+    text-decoration: none;
+    font-weight: 600;
+}
+
+/* score */
+.score {
+    margin-top: 8px;
+    font-weight: bold;
+    color: #22c55e;
+}
+#fav-btn {
+    padding: 8px 12px;
+    border-radius: 12px;
+    border: none;
+
+    background: #e2e8f0;
+    cursor: pointer;
+    transition: 0.3s;
+}
+
+#fav-btn.active {
+    background: #facc15;
+    color: #1e293b;
+}
+
+#fav-btn:hover {
+    transform: scale(1.05);
+}
+
+/* message */
+#fav-msg {
+    margin-top: 8px;
+    color: #16a34a;
+    opacity: 0;
+    transition: 0.4s;
+}
+.suggestions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 15px;
+    justify-content: center;
+}
+
+.suggest-card {
+    width: 150px;
+    border-radius: 16px;
+    overflow: hidden;
+    background: white;
+
+    border: 1px solid #e2e8f0;
+    cursor: pointer;
+
+    transition: 0.3s;
+}
+
+.suggest-card img {
+    width: 100%;
+    height: 100px;
+    object-fit: cover;
+}
+
+.suggest-card p {
+    padding: 10px;
+    text-align: center;
+    font-weight: 500;
+}
+
+.suggest-card:hover {
+    transform: translateY(-4px);
+}
+#history-box {
+    display: none;
+    background: white;
+    border-radius: 12px;
+    margin-top: 10px;
+    padding: 10px;
+    border: 1px solid #e2e8f0;
+}
+
+.history-item {
+    padding: 8px;
+    cursor: pointer;
+    border-radius: 8px;
+}
+
+.history-item:hover {
+    background: #f1f5f9;
+}
+#mic-btn.listening {
+    animation: pulseMic 1s infinite;
+}
+
+@keyframes pulseMic {
+    0% { transform: scale(1); box-shadow: 0 0 0 rgba(56,189,248,0.4); }
+    50% { transform: scale(1.2); box-shadow: 0 0 15px rgba(56,189,248,0.6); }
+    100% { transform: scale(1); }
+}
+.results {
+    animation: fadeIn 0.5s ease;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+.badge {
+    display: inline-block;
+    margin-top: 5px;
+    padding: 4px 8px;
+    font-size: 12px;
+    border-radius: 8px;
+    background: #facc15;
+    color: #1e293b;
+    font-weight: 600;
+}
+#history-box {
+    display: none;
+    background: white;
+    border-radius: 12px;
+    margin-top: 10px;
+    padding: 10px;
+    border: 1px solid #e2e8f0;
+}
+
+.history-item {
+    padding: 8px;
+    cursor: pointer;
+    border-radius: 8px;
+}
+
+.history-item:hover {
+    background: #f1f5f9;
+}
+.video-card img {
+    transition: 0.3s;
+}
+
+.video-card:hover img {
+    transform: scale(1.05);
+}
+#fav-btn.active {
+    transform: scale(1.1);
+}
+.about {
+    max-width: 800px;
+    margin: auto;
+    line-height: 1.7;
+}
+
+.about h1 {
+    margin-bottom: 20px;
+}
+
+.about h2 {
+    margin-top: 30px;
+    color: #38bdf8;
+}
+
+.about ul {
+    margin-left: 20px;
+    margin-top: 10px;
+}
+
+.about .intro {
+    font-size: 18px;
+    opacity: 0.9;
+}
+
+.about hr {
+    margin: 25px 0;
+    border: 1px solid rgba(255,255,255,0.1);
+}
+
+.note {
+    margin-top: 30px;
+    font-style: italic;
+    opacity: 0.7;
+}
+.empty-state {
+    text-align: center;
+    padding: 50px;
+    color: #9ca3af;
+}

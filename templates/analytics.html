@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h2>📊 Analyse</h2>
+
+<p>Total recherches : {{ stats.total_searches }}</p>
+
+<p>Dernière recherche :
+    {% if stats.last_search %}
+        {{ stats.last_search }}
+    {% else %}
+        aucune
+    {% endif %}
+</p>
+
+{% endblock %}

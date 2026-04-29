@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h2>Vidéos favorites</h2>
+
+{% for video in favorites %}
+<div class="video-card">
+    <h3>{{ video.title }}</h3>
+
+    <a href="https://www.youtube.com/watch?v={{ video.id }}" target="_blank">
+        Regarder
+    </a>
+</div>
+{% endfor %}
+
+{% endblock %}

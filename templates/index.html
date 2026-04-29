@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="home">
+
+    <div class="search-box">
+        <form action="/search" method="GET">
+            <input
+                type="text"
+                name="q"
+                placeholder="Apprendre Python, SQL, Linux..."
+                value="{{ query if query else '' }}"
+                id="search-input"
+            >
+            <button type="submit">🔍</button>
+            <button type="button" id="mic-btn" onclick="startVoice()">🎤</button>
+        </form>
+        <div id="history-box">
+            {% if history %}
+                {% for item in history[-5:] %}
+                    <div class="history-item" onclick="searchAgain('{{ item.query }}')">
+                        {{ item.query }}
+                    </div>
+                {% endfor %}
+            {% endif %}
+        </div>
+    </div>
+
+    {% if not results %}
+    <div class="suggestions">
+        {% for s in suggestions %}
+            <div class="suggest-card" onclick="searchAgain('{{ s }}')">
+                <img src="https://source.unsplash.com/300x200/?{{ s }}">
+                <p>{{ s }}</p>
+            </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if results is not none %}
+        {% if results|length > 0 %}
+        <div class="results">
+            <h2>Résultats pour "{{ query }}"</h2>
+
+            <!-- Compteurs -->
+            <p class="result-meta">
+                {{ results|length }} vidéos trouvées —
+                {{ results|selectattr("relevant")|list|length }} pertinentes 🎯
+            </p>
+
+            {% for video in results %}
+            <div class="video-card {% if video.relevant %}card-relevant{% endif %}">
+                <img src="{{ video.snippet.thumbnails.medium.url }}">
+                <div>
+                    <h3>{{ video.snippet.title }}</h3>
+                    <p class="channel">📺 {{ video.snippet.channelTitle }}</p>
+                    <a href="/video/{{ video['id']['videoId'] }}">Voir détails</a>
+                    <div class="score">Score : {{ video.score }}/100</div>
+                    {% if video.relevant %}
+                        <span class="badge">🔥 Pertinent</span>
+                    {% else %}
+                        <span class="badge badge-neutral">📹 Général</span>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+            <p class="empty">Aucun résultat pour cette recherche 😅</p>
+        {% endif %}
+    {% endif %}
+
+</div>
+{% endblock %}

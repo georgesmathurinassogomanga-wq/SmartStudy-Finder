@@ -1,0 +1,443 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="about">
+
+    <div class="tp-header">
+        <p class="university">Université de Yaoundé I — Département d'Informatique</p>
+        <p class="course">INF232 — Collecte et Analyse de Données</p>
+        <h1>Rapport de Projet</h1>
+        <h2>SmartStudy Finder</h2>
+        <p class="subtitle">Un moteur de recherche intelligent de contenus éducatifs sur YouTube</p>
+        <div class="tp-meta">
+            <span>📅 Année académique 2025–2026</span>
+            <span>👨‍🏫 Enseignant responsable : Dr NDOM</span>
+            <span>👨‍💻 Réalisé avec Flask & YouTube Data API v3</span>
+        </div>
+    </div>
+
+    <hr>
+
+    <div class="tp-section">
+        <h2>I. Introduction et Contexte</h2>
+        <p>
+            Dans le cadre du cours INF232 portant sur la collecte et l'analyse de données,
+            il nous a été demandé de concevoir et d'implémenter une application capable
+            de collecter des données depuis une source externe, de les analyser et de
+            restituer des résultats pertinents à l'utilisateur.
+        </p>
+        <p>
+            Le projet <strong>SmartStudy Finder</strong> répond à cette problématique en
+            proposant un moteur de recherche spécialisé dans les contenus éducatifs disponibles
+            sur YouTube. La question centrale est la suivante : comment, à partir d'une
+            requête utilisateur, identifier automatiquement les vidéos à valeur pédagogique
+            parmi les milliers de résultats retournés par la plateforme ?
+        </p>
+        <p>
+            YouTube ne distingue pas nativement les contenus éducatifs des contenus de
+            divertissement. Notre application comble ce manque en appliquant une couche
+            d'analyse et de filtrage sur les données brutes retournées par l'API.
+        </p>
+    </div>
+
+    <hr>
+
+    <div class="tp-section">
+        <h2>II. Architecture Générale</h2>
+        <p>
+            L'application suit une architecture <strong>MVC simplifiée</strong> (Modèle — Vue — Contrôleur)
+            articulée autour du framework Flask. Les responsabilités sont clairement séparées
+            entre les différents modules :
+        </p>
+        <div class="archi-grid">
+            <div class="archi-card">
+                <h4>🧠 Collecte</h4>
+                <code>youtube_api.py</code>
+                <p>Appels à l'API YouTube, récupération brute des données vidéo et statistiques.</p>
+            </div>
+            <div class="archi-card">
+                <h4>🔬 Analyse</h4>
+                <code>score.py / filter.py</code>
+                <p>Calcul du score de qualité, détection du caractère éducatif des contenus.</p>
+            </div>
+            <div class="archi-card">
+                <h4>📊 Statistiques</h4>
+                <code>analyzer.py</code>
+                <p>Analyse de l'historique local des recherches de l'utilisateur.</p>
+            </div>
+            <div class="archi-card">
+                <h4>🖥️ Restitution</h4>
+                <code>templates/</code>
+                <p>Affichage des résultats filtrés, triés et annotés à l'utilisateur.</p>
+            </div>
+        </div>
+    </div>
+
+    <hr>
+
+    <div class="tp-section">
+        <h2>III. Collecte des Données</h2>
+
+        <h3>3.1 Source de données</h3>
+        <p>
+            Les données sont collectées via l'<strong>API officielle YouTube Data v3</strong>,
+            mise à disposition par Google. Cette API REST retourne des données structurées
+            au format JSON, ce qui facilite leur traitement programmatique.
+        </p>
+
+        <h3>3.2 Processus de collecte</h3>
+        <p>
+            À chaque requête utilisateur, deux appels API successifs sont effectués :
+        </p>
+        <div class="step-block">
+            <div class="step">
+                <span class="step-num">1</span>
+                <div>
+                    <strong>Endpoint <code>/search</code></strong><br>
+                    Retourne jusqu'à 20 vidéos correspondant à la requête. Les données
+                    récupérées à cette étape sont : l'identifiant de la vidéo, le titre,
+                    la description, la miniature, le nom de la chaîne et la date de publication.
+                </div>
+            </div>
+            <div class="step">
+                <span class="step-num">2</span>
+                <div>
+                    <strong>Endpoint <code>/videos</code> (batch)</strong><br>
+                    Appelé en une seule requête avec tous les identifiants récupérés à l'étape 1.
+                    Retourne les statistiques de chaque vidéo : nombre de vues, de likes
+                    et de commentaires. Ce regroupement en batch est une optimisation importante
+                    pour réduire le nombre d'appels API consommés.
+                </div>
+            </div>
+            <div class="step">
+                <span class="step-num">3</span>
+                <div>
+                    <strong>Endpoint <code>/commentThreads</code></strong><br>
+                    Appelé uniquement sur la page de détail d'une vidéo. Retourne les
+                    commentaires publics, triés par pertinence. Les 5 commentaires
+                    les plus likés sont extraits et affichés.
+                </div>
+            </div>
+        </div>
+
+        <h3>3.3 Stockage local</h3>
+        <p>
+            Aucune base de données n'est utilisée. Les données persistantes sont stockées
+            localement dans deux fichiers JSON :
+        </p>
+        <ul>
+            <li><code>data/history.json</code> — historique horodaté des recherches effectuées</li>
+            <li><code>data/favorites.json</code> — liste des vidéos sauvegardées par l'utilisateur</li>
+        </ul>
+        <p>
+            Ce choix architectural est justifié par la nature locale et personnelle de ces
+            données, qui ne nécessitent pas de persistance côté serveur.
+        </p>
+    </div>
+
+    <hr>
+
+    <div class="tp-section">
+        <h2>IV. Analyse des Données</h2>
+
+        <h3>4.1 Calcul du score de qualité</h3>
+        <p>
+            Chaque vidéo collectée reçoit un <strong>score de qualité</strong> compris entre
+            0 et 100, calculé à partir du ratio likes/vues selon la formule suivante :
+        </p>
+        <div class="formula-box">
+            <code>Score = (likes / vues) × 1000</code>
+            <br><small>Plafonné à 100 pour éviter les valeurs aberrantes sur les petites vidéos.</small>
+        </div>
+        <p>
+            Ce score reflète le <strong>taux d'engagement</strong> de la communauté plutôt que
+            la popularité brute. Une vidéo très vue mais peu appréciée obtiendra un score faible,
+            tandis qu'une vidéo de niche mais très bien notée par son audience obtiendra un score élevé.
+            Une vidéo est marquée <span class="badge">🔥 Pertinent</span> si son score dépasse 50.
+        </p>
+
+        <h3>4.2 Filtrage éducatif par mots-clés</h3>
+        <p>
+            Avant d'afficher les résultats, chaque vidéo est soumise à un filtre de détection
+            du caractère éducatif. Ce filtre opère en trois étapes :
+        </p>
+        <div class="step-block">
+            <div class="step">
+                <span class="step-num">1</span>
+                <div>
+                    <strong>Normalisation du texte</strong><br>
+                    Le titre et la description sont concaténés, convertis en minuscules,
+                    et débarrassés de tous les caractères spéciaux. Cela garantit que
+                    "Tutoriel", "TUTORIEL" et "tutoriel" sont traités de manière identique.
+                </div>
+            </div>
+            <div class="step">
+                <span class="step-num">2</span>
+                <div>
+                    <strong>Détection de mots-clés éducatifs</strong><br>
+                    Le texte normalisé est comparé à une liste de mots-clés définie manuellement.
+                    Si au moins un mot-clé est présent, la vidéo est considérée éducative.
+                </div>
+            </div>
+            <div class="step">
+                <span class="step-num">3</span>
+                <div>
+                    <strong>Exclusion ou conservation</strong><br>
+                    Les vidéos ne contenant aucun mot-clé éducatif sont exclues des résultats.
+                    Les vidéos conservées sont annotées <code>relevant=True</code>.
+                </div>
+            </div>
+        </div>
+
+        <p>Les mots-clés éducatifs utilisés sont les suivants :</p>
+        <div class="keywords-box">
+            apprendre · learn · tutoriel · tutorial · cours · lesson · débutant · beginner ·
+            introduction · guide · formation · exercice · practice · basics · base · explication ·
+            détaillé · comprendre · comment · how to · étape · step · commande · command ·
+            master · démarrer · start · fondamental · essentiel · apprend · enseign · éducati
+        </div>
+
+        <h3>4.3 Tri final des résultats</h3>
+        <p>
+            Les vidéos conservées après filtrage sont triées selon deux critères combinés,
+            par ordre de priorité décroissant :
+        </p>
+        <ul>
+            <li>Le caractère pertinent (<code>relevant=True</code>) passe en premier</li>
+            <li>À pertinence égale, le score likes/vues détermine le classement</li>
+        </ul>
+    </div>
+
+    <hr>
+
+    <div class="tp-section">
+        <h2>V. Limites et Analyse Critique du Filtre</h2>
+
+        <p>
+            Le système de filtrage par mots-clés, bien qu'opérationnel, présente une
+            <strong>faille structurelle connue</strong> qu'il convient d'analyser honnêtement.
+        </p>
+
+        <div class="flaw-box">
+            <h3>🔴 Problème — Les faux positifs</h3>
+            <p>
+                Un faux positif est une vidéo <strong>non éducative qui passe le filtre</strong>
+                car son titre ou sa description contient accidentellement un mot-clé éducatif.
+                Cette situation est plus fréquente qu'on ne le pense. Exemples concrets :
+            </p>
+            <ul>
+                <li>
+                    <em>"Comment j'ai survécu à 30 jours en forêt"</em> — passe grâce à
+                    <strong>"comment"</strong>, bien que cette vidéo soit un vlog d'aventure.
+                </li>
+                <li>
+                    <em>"Ma formation en Espagne — vlog #12"</em> — passe grâce à
+                    <strong>"formation"</strong>, qui désigne ici un séjour touristique.
+                </li>
+                <li>
+                    <em>"Les bases de la recette de ma grand-mère"</em> — passe grâce à
+                    <strong>"base"</strong>, bien qu'il s'agisse d'une vidéo culinaire informelle.
+                </li>
+                <li>
+                    <em>"Attaque des Titans — Introduction au lore"</em> — passe grâce à
+                    <strong>"introduction"</strong>, bien qu'il s'agisse d'une vidéo de divertissement.
+                </li>
+            </ul>
+            <p>
+                La cause fondamentale est que le filtre analyse la <strong>présence syntaxique</strong>
+                d'un mot-clé, sans comprendre le <strong>sens sémantique</strong> du contexte dans
+                lequel il apparaît. Un mot comme "base" ou "comment" est polysémique et très courant
+                dans la langue française, ce qui le rend peu discriminant pris isolément.
+            </p>
+        </div>
+
+        <div class="flaw-box flaw-green">
+            <h3>🟢 Mécanismes atténuateurs</h3>
+            <p>
+                Plusieurs éléments du système limitent l'impact de cette faille en pratique :
+            </p>
+            <ul>
+                <li>
+                    Le <strong>score likes/vues</strong> agit comme filtre de qualité secondaire :
+                    une vidéo de mauvaise qualité pédagogique tendra à avoir un score faible
+                    et apparaîtra en bas de liste.
+                </li>
+                <li>
+                    L'<strong>algorithme de recherche YouTube</strong> effectue déjà un premier
+                    tri sémantique avant que notre filtre intervienne : les résultats retournés
+                    sont généralement cohérents avec la requête.
+                </li>
+                <li>
+                    La <strong>combinaison titre + description</strong> augmente la précision :
+                    une vidéo éducative aura tendance à avoir plusieurs mots-clés présents,
+                    tandis qu'un faux positif n'en aura souvent qu'un seul accidentel.
+                </li>
+            </ul>
+        </div>
+
+        <div class="flaw-box flaw-yellow">
+            <h3>🟡 Pistes d'amélioration envisagées</h3>
+            <ul>
+                <li>
+                    <strong>Score de confiance pondéré :</strong> compter le nombre de mots-clés
+                    détectés et n'accepter une vidéo que si ce nombre dépasse un seuil minimal,
+                    plutôt qu'un simple booléen présent/absent.
+                </li>
+                <li>
+                    <strong>Classification NLP :</strong> utiliser un modèle de traitement du
+                    langage naturel (comme un classificateur entraîné sur des descriptions de
+                    vidéos éducatives vs non éducatives) pour une détection sémantique réelle.
+                </li>
+                <li>
+                    <strong>Analyse de la durée :</strong> les tutoriels ont rarement une durée
+                    inférieure à 5 minutes. Intégrer ce critère permettrait d'éliminer de nombreux
+                    faux positifs courts.
+                </li>
+                <li>
+                    <strong>Analyse des commentaires :</strong> si les commentaires d'une vidéo
+                    contiennent des termes liés à l'apprentissage ("merci pour le cours",
+                    "très bien expliqué", etc.), c'est un signal fort de valeur éducative.
+                </li>
+                <li>
+                    <strong>Réputation de la chaîne :</strong> maintenir une liste blanche de
+                    chaînes reconnues comme éducatives (Grafikart, OpenClassrooms, etc.)
+                    pour leur accorder automatiquement un bonus de pertinence.
+                </li>
+            </ul>
+        </div>
+    </div>
+
+    <hr>
+
+    <div class="tp-section">
+        <h2>VI. Technologies Utilisées</h2>
+        <ul>
+            <li><strong>Python 3 / Flask</strong> — backend, routing, logique métier</li>
+            <li><strong>YouTube Data API v3</strong> — source principale de données</li>
+            <li><strong>JavaScript vanilla</strong> — interactions UI, reconnaissance vocale, favoris</li>
+            <li><strong>HTML5 / CSS3</strong> — interface utilisateur responsive</li>
+            <li><strong>JSON</strong> — persistance locale de l'historique et des favoris</li>
+            <li><strong>python-dotenv</strong> — gestion sécurisée de la clé API</li>
+        </ul>
+    </div>
+
+    <hr>
+// =====================
+// INIT
+// =====================
+console.log("SmartStudy Finder loaded");
+
+// =====================
+// MESSAGE UTILITAIRE
+// =====================
+function showMessage(text) {
+    const msg = document.getElementById("fav-msg");
+
+    if (!msg) return;
+
+    msg.textContent = text;
+    msg.style.opacity = "1";
+
+    setTimeout(() => {
+        msg.style.opacity = "0";
+    }, 2000);
+}
+
+// =====================
+// RECHERCHE RAPIDE (historique + suggestions)
+// =====================
+function searchAgain(query) {
+    window.location.href = "/search?q=" + encodeURIComponent(query);
+}
+
+// =====================
+// VOIX (MICRO)
+// =====================
+function startVoice() {
+    const recognition = new webkitSpeechRecognition();
+    const mic = document.getElementById("mic-btn");
+
+    if (!mic) return;
+
+    mic.classList.add("listening");
+
+    recognition.onresult = function(event) {
+        document.getElementById("search-input").value =
+            event.results[0][0].transcript;
+    };
+
+    recognition.onend = function() {
+        mic.classList.remove("listening");
+    };
+
+    recognition.start();
+}
+
+// =====================
+// HISTORIQUE (affichage au focus)
+// =====================
+document.addEventListener("DOMContentLoaded", () => {
+    const input = document.getElementById("search-input");
+    const historyBox = document.getElementById("history-box");
+
+    if (input && historyBox) {
+        input.addEventListener("focus", () => {
+            historyBox.style.display = "block";
+        });
+
+        document.addEventListener("click", (e) => {
+            if (!e.target.closest(".search-box")) {
+                historyBox.style.display = "none";
+            }
+        });
+    }
+
+    // =====================
+    // FAVORIS (TOGGLE UNIQUE)
+    // =====================
+    const btn = document.getElementById("fav-btn");
+
+    if (btn) {
+        btn.addEventListener("click", async () => {
+            const id = btn.dataset.id;
+            const title = btn.dataset.title;
+
+            const res = await fetch("/toggle_favorite", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ id, title })
+            });
+
+            const data = await res.json();
+
+            if (data.status === "added") {
+                btn.classList.add("active");
+                btn.textContent = "✔ Retirer des favoris";
+                showMessage("Ajouté aux favoris ⭐");
+            } else if (data.status === "removed") {
+                btn.classList.remove("active");
+                btn.textContent = "⭐ Ajouter aux favoris";
+                showMessage("Retiré des favoris ❌");
+            } else {
+                showMessage("Erreur ⚠️");
+            }
+        });
+    }
+});
+
+// =====================
+// THEME (OPTIONNEL FUTUR)
+// =====================
+function toggleTheme() {
+    document.body.classList.toggle("dark-mode");
+}
+
+    <p class="note">
+        Ce rapport présente l'état actuel du projet SmartStudy Finder dans le cadre du cours INF232.
+        Les limites identifiées constituent des pistes de recherche et d'amélioration futures,
+        illustrant la complexité inhérente à tout système automatique de classification de contenu.
+    </p>
+
+</div>
+{% endblock %}

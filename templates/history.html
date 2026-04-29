@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h2>📜 Historique</h2>
+
+<ul>
+    {% for item in history %}
+        <li>
+            🔎 {{ item.query }} - 🕒 {{ item.date }}
+        </li>
+    {% endfor %}
+</ul>
+
+{% endblock %}
