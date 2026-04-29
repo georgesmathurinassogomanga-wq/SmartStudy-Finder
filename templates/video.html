@@ -6,43 +6,38 @@
     <h2>{{ video.snippet.title }}</h2>
     <p class="channel">📺 {{ video.snippet.channelTitle }}</p>
 
-    <!-- Miniature -->
-    <img 
-        src="{{ video.snippet.thumbnails.high.url }}" 
+    <img
+        src="{{ video.snippet.thumbnails.high.url }}"
         alt="{{ video.snippet.title }}"
         class="video-thumb"
     >
 
-    <!-- Stats -->
     <div class="video-stats">
         <span>👁 {{ video.statistics.viewCount | default('N/A') }} vues</span>
         <span>👍 {{ video.statistics.likeCount | default('N/A') }} likes</span>
         <span class="score">⭐ Score : {{ score }}/100</span>
     </div>
 
-    <!-- Description -->
     <div class="video-desc">
         <p>{{ video.snippet.description[:300] }}{% if video.snippet.description|length > 300 %}...{% endif %}</p>
     </div>
 
-    <!-- Bouton YouTube -->
     <a href="https://www.youtube.com/watch?v={{ video.id }}" target="_blank" class="yt-btn">
         ▶ Regarder sur YouTube
     </a>
 
-    <!-- Favori -->
-    <button 
+    <button
         id="fav-btn"
         data-id="{{ video.id }}"
         data-title="{{ video.snippet.title }}"
+        class="{% if is_favorite %}active{% endif %}"
     >
-        ☆ Ajouter aux favoris
+        {% if is_favorite %}✔ Retirer des favoris{% else %}☆ Ajouter aux favoris{% endif %}
     </button>
     <p id="fav-msg"></p>
 
     <hr>
 
-    <!-- Commentaires -->
     <h3>💬 Top 5 commentaires</h3>
 
     {% if comments %}
@@ -59,7 +54,7 @@
             {% endfor %}
         </div>
     {% else %}
-        <p class="empty">Commentaires désactivés ou indisponibles pour cette vidéo.</p>
+        <p class="empty">Commentaires désactivés ou indisponibles.</p>
     {% endif %}
 
 </div>

@@ -1,15 +1,25 @@
 {% extends "base.html" %}
-
 {% block content %}
-
 <h2>📜 Historique</h2>
 
-<ul>
-    {% for item in history %}
-        <li>
-            🔎 {{ item.query }} - 🕒 {{ item.date }}
-        </li>
-    {% endfor %}
-</ul>
+{% if history %}
+    <form action="/clear_history" method="POST" style="margin-bottom:15px;">
+        <button type="submit" style="background:#ef4444;">🗑 Vider l'historique</button>
+    </form>
+    <ul>
+        {% for item in history|reverse %}
+            <li>
+                <span style="cursor:pointer;" onclick="searchAgain('{{ item.query }}')">
+                    🔎 {{ item.query }}
+                </span>
+                <span style="float:right; color:var(--text-muted); font-size:12px;">
+                    🕒 {{ item.date }}
+                </span>
+            </li>
+        {% endfor %}
+    </ul>
+{% else %}
+    <p class="empty">Aucune recherche effectuée.</p>
+{% endif %}
 
 {% endblock %}
