@@ -26,6 +26,27 @@ function toggleTheme() {
 })();
 
 // =====================
+// BURGER MENU
+// =====================
+function toggleMenu() {
+    const links = document.getElementById("nav-links");
+    const overlay = document.getElementById("nav-overlay");
+    const burger = document.getElementById("burger-btn");
+    links.classList.toggle("open");
+    overlay.classList.toggle("open");
+    burger.textContent = links.classList.contains("open") ? "✕" : "☰";
+}
+
+function closeMenu() {
+    const links = document.getElementById("nav-links");
+    const overlay = document.getElementById("nav-overlay");
+    const burger = document.getElementById("burger-btn");
+    links.classList.remove("open");
+    overlay.classList.remove("open");
+    burger.textContent = "☰";
+}
+
+// =====================
 // INIT
 // =====================
 console.log("SmartStudy Finder loaded");

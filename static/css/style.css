@@ -687,3 +687,125 @@ ul li {
 
     .step { flex-direction: column; }
 }
+/* =====================
+   NAVBAR
+   ===================== */
+nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    position: sticky;
+    top: 0;
+    background: var(--nav-bg);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border);
+    z-index: 200;
+}
+
+.nav-brand {
+    font-weight: 700;
+    font-size: 18px;
+    color: var(--primary);
+}
+
+/* Burger — visible seulement mobile */
+.burger {
+    display: none;
+    background: none;
+    border: none;
+    font-size: 26px;
+    cursor: pointer;
+    color: var(--text);
+    padding: 4px 8px;
+    border-radius: 8px;
+    transition: 0.2s;
+}
+
+.burger:hover { background: var(--border); }
+
+/* Nav links — desktop */
+.nav-links {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.nav-links a {
+    color: var(--text-muted);
+    text-decoration: none;
+    font-weight: 500;
+    font-size: 14px;
+    white-space: nowrap;
+    transition: 0.3s;
+}
+
+.nav-links a:hover { color: var(--primary); }
+.nav-links a.active { color: var(--primary); font-weight: 700; }
+
+#theme-toggle {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 12px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 15px;
+    transition: 0.3s;
+}
+
+#theme-toggle:hover {
+    background: var(--primary);
+    color: white;
+}
+
+/* Overlay sombre derrière le menu */
+.nav-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+    z-index: 150;
+}
+
+.nav-overlay.open { display: block; }
+
+/* =====================
+   MOBILE BURGER MENU
+   ===================== */
+@media (max-width: 768px) {
+    .burger { display: block; }
+
+    .nav-links {
+        position: fixed;
+        top: 0;
+        right: -280px;
+        width: 260px;
+        height: 100vh;
+        background: var(--surface);
+        border-left: 1px solid var(--border);
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0;
+        padding: 70px 20px 20px;
+        z-index: 300;
+        transition: right 0.3s ease;
+        box-shadow: -4px 0 20px rgba(0,0,0,0.15);
+    }
+
+    .nav-links.open { right: 0; }
+
+    .nav-links a {
+        width: 100%;
+        padding: 14px 10px;
+        font-size: 16px;
+        border-bottom: 1px solid var(--border);
+    }
+
+    #theme-toggle {
+        margin-top: 20px;
+        width: 100%;
+        text-align: center;
+        padding: 12px;
+    }
+}

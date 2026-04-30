@@ -8,13 +8,22 @@
 </head>
 <body>
 <nav>
-    <a href="/" class="{% if active == 'home' %}active{% endif %}">🏠 Accueil</a>
-    <a href="/history" class="{% if active == 'history' %}active{% endif %}">📜 Historique</a>
-    <a href="/favorites" class="{% if active == 'favorites' %}active{% endif %}">⭐ Favoris</a>
-    <a href="/analytics" class="{% if active == 'analytics' %}active{% endif %}">📊 Analyse</a>
-    <a href="/about" class="{% if active == 'about' %}active{% endif %}">📖 À propos</a>
-    <button id="theme-toggle" onclick="toggleTheme()">🌙 Sombre</button>
+    <div class="nav-brand">📚 SmartStudy</div>
+
+    <button class="burger" id="burger-btn" onclick="toggleMenu()">☰</button>
+
+    <div class="nav-links" id="nav-links">
+        <a href="/" class="{% if active == 'home' %}active{% endif %}" onclick="closeMenu()">🏠 Accueil</a>
+        <a href="/history" class="{% if active == 'history' %}active{% endif %}" onclick="closeMenu()">📜 Historique</a>
+        <a href="/favorites" class="{% if active == 'favorites' %}active{% endif %}" onclick="closeMenu()">⭐ Favoris</a>
+        <a href="/analytics" class="{% if active == 'analytics' %}active{% endif %}" onclick="closeMenu()">📊 Analyse</a>
+        <a href="/about" class="{% if active == 'about' %}active{% endif %}" onclick="closeMenu()">📖 À propos</a>
+        <button id="theme-toggle" onclick="toggleTheme()">🌙</button>
+    </div>
 </nav>
+
+<div class="nav-overlay" id="nav-overlay" onclick="closeMenu()"></div>
+
 <div class="container">
     {% block content %}{% endblock %}
 </div>
